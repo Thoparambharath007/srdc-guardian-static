@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+
+# Large AI Model Weights & Datasets
+three_stage_pipeline_weights.zip
+three_stage_pipeline_weights/
+*.csv
+*.xls
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Environment Variables & Logs
+.env
+scan_history.json
+trusted_files.json
+*.log
+cape_report_task*.json
+
+# IDE
+.vscode/
+.idea/
+.opencode/
+.claude/
+
+# Temporary / OS Files
+.DS_Store
+Thumbs.db
+quarantine/
+mesh-llm/
+mongo-demo/

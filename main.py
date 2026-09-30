@@ -6,7 +6,6 @@ Advanced Windows desktop app with:
   - Scan history table with CSV export
   - Quarantine management
   - Toast notifications
-  - System tray (requires: pip install pystray pillow)
   - Sound alerts (built-in winsound)
 
 Run: python main.py
@@ -24,8 +23,6 @@ def require_admin():
                 sys.exit(0)
     except Exception as e:
         print(f"[Admin Check] Warning: {e}")
-
-require_admin()
 
 import os, sys, time, threading
 import tkinter as tk
@@ -716,6 +713,7 @@ class AnalysisChoicePopup(tk.Toplevel):
 
         body = tk.Frame(self, bg=BG, padx=22, pady=18)
         body.pack(fill="both", expand=True)
+        self.configure(width=560)
         tk.Label(body, text=source, bg=BG, fg=DIM, font=FT_SMALL).pack(anchor="w")
         tk.Label(body, text=f"📄  {Path(filepath).name}", bg=BG, fg=TXT,
                  font=FT_HEAD, wraplength=510, justify="left").pack(anchor="w", pady=(3, 8))
@@ -724,22 +722,25 @@ class AnalysisChoicePopup(tk.Toplevel):
                  bg=BG, fg=DIM, font=FT_SMALL, wraplength=510,
                  justify="left").pack(anchor="w", pady=(0, 14))
 
-        actions = tk.Frame(body, bg=BG)
-        actions.pack(fill="x")
-        tk.Button(actions, text="🔍  Run Static Analysis", bg=BLU, fg="white",
+        # Primary action: full-width, prominent
+        tk.Button(body, text="🔍  Run Static Analysis", bg=BLU, fg="white",
                   activebackground="#79c0ff", activeforeground="white",
-                  font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=8,
-                  cursor="hand2", command=self._scan).pack(side="left")
+                  font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=9,
+                  cursor="hand2", command=self._scan).pack(fill="x")
 
+        # Secondary actions: two equal-width buttons side by side
         secondary = tk.Frame(body, bg=BG)
         secondary.pack(fill="x", pady=(10, 0))
+        secondary.columnconfigure(0, weight=1, uniform="sec")
+        secondary.columnconfigure(1, weight=1, uniform="sec")
         tk.Button(secondary, text="▶  Continue / Keep File", bg=PANEL, fg=DIM,
-                  font=FT_BODY, relief="flat", padx=12, pady=7, cursor="hand2",
-                  command=self.destroy).pack(side="left")
+                  activebackground=CARD, activeforeground=TXT,
+                  font=FT_BODY, relief="flat", pady=8, cursor="hand2",
+                  command=self.destroy).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         tk.Button(secondary, text="🔒  Quarantine", bg=RED, fg="white",
                   activebackground="#b91c1c", activeforeground="white",
-                  font=FT_BODY, relief="flat", padx=12, pady=7, cursor="hand2",
-                  command=self._quarantine).pack(side="left", padx=(8, 0))
+                  font=FT_BODY, relief="flat", pady=8, cursor="hand2",
+                  command=self._quarantine).grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
         self.update_idletasks()
         self.geometry(f"+{(self.winfo_screenwidth()-self.winfo_width())//2}+{(self.winfo_screenheight()-self.winfo_height())//2}")
@@ -907,9 +908,19 @@ class ProcessVerdictPopup(tk.Toplevel):
 
     def _kill(self):
         pm.kill_process(self._pid)
+        # TerminateProcess is asynchronous: the kernel releases the file
+        # handle only after the process fully exits. Moving immediately
+        # makes quarantine fail with a sharing violation.
+        for _ in range(20):
+            if not pm.is_running(self._pid):
+                break
+            time.sleep(0.1)
         entry = qm.quarantine_file(self._filepath, self._vdict["label"])
         if entry:
             Toast(self._app, "Process Killed", f"{Path(self._filepath).name} quarantined.", RED)
+        else:
+            Toast(self._app, "Process Killed",
+                  f"{Path(self._filepath).name} killed but could not be moved to quarantine.", YLW)
         self._app.refresh_pages()
         self.destroy()
 
@@ -1229,6 +1240,7 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
+    require_admin()      # self-elevate only when run as a script, never on import
     app = App()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
     app.mainloop()

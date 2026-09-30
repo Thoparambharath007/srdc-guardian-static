@@ -3,6 +3,4 @@ requests>=2.31
 watchdog>=4.0
 wmi>=1.5.1; platform_system == "Windows"
 pywin32>=306; platform_system == "Windows"
-pystray>=0.19
-pillow>=10.0
 yara-python>=4.5

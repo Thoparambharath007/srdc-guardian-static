@@ -22,6 +22,9 @@ def compute_verdict(static: dict) -> dict:
     vt_clean   = (not static["vt"]["vt_flag"] and
                   static["vt"]["total"] > 0)      # actually checked + clean
     vt_flagged = static["vt"]["vt_flag"]
+    vt_unknown = (static["vt"]["total"] == 0)     # no reputation (no key / new file)
+    if vt_unknown:
+        reasons.append("ℹ VirusTotal reputation unavailable — relying on local static analysis only")
 
     # ── 1. VirusTotal (MAJOR PRIORITY — strongest single signal) ────────────
     if vt_flagged:
@@ -87,6 +90,14 @@ def compute_verdict(static: dict) -> dict:
     # ── Final decision ────────────────────────────────────────────────────────
     mal_score = max(0, mal_score)   # floor at 0
 
+    # A "strong" local indicator is something beyond generic YARA / entropy /
+    # size noise: an extension that lies, an invalid signature, or a VT flag.
+    strong_local = (
+        static["magic"]["flag"]
+        or vt_flagged
+        or (sig.get("applicable") and sig.get("signed") and not sig.get("trusted"))
+    )
+
     no_strong_signals = (not vt_flagged and
                          not static["yara"]["flag"] and
                          not static["magic"]["flag"])
@@ -97,7 +108,11 @@ def compute_verdict(static: dict) -> dict:
     elif mal_score >= 7:
         label        = "Ransomware"
         is_malicious = True
-    elif mal_score >= 2:
+    elif mal_score >= 2 and (strong_local or mal_score >= 4):
+        # A low score (2-3) counts as "Suspicious" only when a strong local
+        # indicator is present, or when multiple weaker signals corroborate
+        # (score >= 4). This stops a single generic YARA / entropy hit from
+        # flagging a clean installer whose VirusTotal reputation is unknown.
         label        = "Suspicious"
         is_malicious = True
     else:

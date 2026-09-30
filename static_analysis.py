@@ -124,6 +124,13 @@ def virustotal_lookup(sha256: str) -> dict:
         if resp.status_code == 404:
             return {"vt_flag": False, "positives": 0, "total": 0,
                     "detail": "Hash not found in VirusTotal database (new file)"}
+        if resp.status_code in (401, 403):
+            return {"vt_flag": False, "positives": 0, "total": 0,
+                    "detail": "VirusTotal rejected the API key (401/403) — it may be "
+                              "expired or invalid; check Settings. Local analysis still ran."}
+        if resp.status_code == 429:
+            return {"vt_flag": False, "positives": 0, "total": 0,
+                    "detail": "VirusTotal rate limit reached — try again in a minute."}
         resp.raise_for_status()
         stats    = resp.json()["data"]["attributes"]["last_analysis_stats"]
         pos      = stats.get("malicious", 0) + stats.get("suspicious", 0)
@@ -224,29 +231,50 @@ def check_size_anomaly(file_path: str) -> dict:
 
 # ─── YARA ────────────────────────────────────────────────────────────────────
 
-def yara_scan(file_path: str) -> dict:
-    """
-    Scan with YARA rules from yara_rules/ folder.
-    Returns { "flag": bool, "matches": list[str], "detail": str }
-    """
+# Compiled rules are cached at module level — recompiling them on every scan
+# is wasteful. "IMPORT_ERROR" means yara-python is missing; None means no rules.
+_YARA_RULES = None
+_YARA_RULES_TRIED = False
+
+
+def _load_yara_rules():
+    """Compile the YARA rules once and cache the result for reuse."""
+    global _YARA_RULES, _YARA_RULES_TRIED
+    if _YARA_RULES_TRIED:
+        return _YARA_RULES
+    _YARA_RULES_TRIED = True
     try:
         import yara
         import glob
         rule_files = glob.glob(
             os.path.join(os.path.dirname(__file__), "yara_rules", "*.yar"))
-        if not rule_files:
-            return {"flag": False, "matches": [],
-                    "detail": "No YARA rule files found"}
-        rules   = yara.compile(filepaths={str(i): p
-                                          for i, p in enumerate(rule_files)})
+        if rule_files:
+            _YARA_RULES = yara.compile(
+                filepaths={str(i): p for i, p in enumerate(rule_files)})
+    except ImportError:
+        _YARA_RULES = "IMPORT_ERROR"
+    except Exception:
+        _YARA_RULES = None
+    return _YARA_RULES
+
+
+def yara_scan(file_path: str) -> dict:
+    """
+    Scan with YARA rules from yara_rules/ folder.
+    Returns { "flag": bool, "matches": list[str], "detail": str }
+    """
+    rules = _load_yara_rules()
+    if rules == "IMPORT_ERROR":
+        return {"flag": False, "matches": [],
+                "detail": "yara-python not installed — skipping YARA scan"}
+    if rules is None:
+        return {"flag": False, "matches": [], "detail": "No YARA rule files found"}
+    try:
         matches = rules.match(file_path)
         names   = [m.rule for m in matches]
         flag    = len(names) > 0
         detail  = f"YARA matched: {', '.join(names)}" if flag else "No YARA matches"
         return {"flag": flag, "matches": names, "detail": detail}
-    except ImportError:
-        return {"flag": False, "matches": [],
-                "detail": "yara-python not installed — skipping YARA scan"}
     except Exception as e:
         return {"flag": False, "matches": [], "detail": f"YARA error: {e}"}
 

@@ -63,12 +63,37 @@ Every scanned file goes through these instant, no-execution checks:
 - **Shannon entropy** — packed/encrypted payloads (type-aware: a `.zip` being
   high-entropy is normal, an `.exe` being high-entropy is suspicious)
 - **File-size anomalies**
-- **YARA rules** from `yara_rules/`
+- **YARA rules** from `yara_rules/` (tuned to avoid false positives on clean
+  installers — see the false-positive policy below)
 
 Signals are combined with a weighted verdict policy — VirusTotal consensus is
 the major signal, magic-byte mismatch and signature validity are medium-strong,
 YARA/entropy/size are medium-to-weak — producing **Clean / Suspicious /
 Ransomware** with an honest confidence level.
+
+### False-positive policy (built after real-world tuning)
+
+A security tool that screams "malware" at every clean installer teaches users
+to ignore it. Three mechanisms keep the verdicts honest:
+
+- **Specific YARA rules** — generic strings (`locky`, `to decrypt`) no longer
+  fire on their own: the crypto-ransomware rule requires either a known family
+  name *or* a ransom note **combined with** Windows crypto APIs, and the
+  base64-blob rule needs a 500+ character run (a 100+ char threshold fired on
+  legitimate binaries and embedded certificates).
+- **Corroboration rule** — a single weak hit (one generic YARA match, high
+  entropy) is reported as *information*, not a threat. A **Suspicious**
+  verdict requires either two independent weak signals or one strong local
+  indicator (lying extension, invalid signature, VirusTotal flag).
+- **Trust evidence counts** — a valid Authenticode signature from a trusted
+  publisher and a broad clean VirusTotal consensus actively lower the
+  suspicion score and raise confidence, so a signed installer with YARA noise
+  stays **Clean**.
+
+**No VirusTotal key?** Everything still works locally: the verdict engine says
+so explicitly ("VirusTotal reputation unavailable — relying on local static
+analysis only") and reports **Low confidence** instead of pretending to have
+reputation it doesn't have.
 
 ## 🚦 Process interception (foreign-file policy)
 
@@ -134,6 +159,28 @@ For a full result object without the GUI:
 python scan_file.py "C:\path\to\file.exe" --json
 ```
 
+### Tests
+
+The verdict engine and every static check have unit tests:
+
+```powershell
+python -m pytest tests/ -v
+```
+
+or with no extra dependencies (the files are plain pytest-compatible and also
+run standalone):
+
+```powershell
+python tests/test_verdict.py
+python tests/test_static_analysis.py
+```
+
+The suite locks in the false-positive policy: a single generic YARA hit on a
+file with no VirusTotal reputation must stay **Clean**, corroborated weak
+signals must be **Suspicious**, a lying extension is **Suspicious** on its
+own, a trusted signature overrides YARA noise, and broad multi-engine flags
+reach **Ransomware**.
+
 ---
 
 ## 🖥️ The App
@@ -167,7 +214,10 @@ python scan_file.py "C:\path\to\file.exe" --json
 ├── history_store.py         # Scan history (JSON + CSV export)
 ├── quarantine_manager.py    # Quarantine management
 ├── yara_rules/
-│   └── basic_rules.yar      # YARA detection rules
+│   └── basic_rules.yar      # YARA detection rules (false-positive-tuned)
+├── tests/
+│   ├── test_verdict.py      # Verdict-policy unit tests
+│   └── test_static_analysis.py  # Static-check unit tests
 └── quarantine/              # Created at runtime (gitignored)
 ```
 

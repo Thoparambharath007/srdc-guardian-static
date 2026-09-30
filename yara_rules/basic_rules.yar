@@ -52,22 +52,29 @@ rule locky_indicator
 rule crypto_ransom_generic
 {
     meta:
-        description = "Generic crypto-ransomware behavior strings"
-        severity    = "medium"
+        description = "Crypto-ransomware: known family names, or a ransom note combined with Windows crypto APIs"
+        severity    = "high"
     strings:
-        $a1 = "bitcoin" nocase
-        $a2 = "decrypt" nocase
-        $a3 = "encrypt" nocase wide ascii
-        $a4 = "CryptoWall" nocase
-        $a5 = "TeslaCrypt" nocase
-        $a6 = "Cerber" nocase
-        $a7 = "Ryuk" nocase
-        $b1 = "AES-256" nocase
-        $b2 = "RSA-2048" nocase
-        $b3 = "CryptEncrypt" nocase
-        $b4 = "CryptGenKey" nocase
+        // High-signal: known ransomware family / product names
+        $fam1 = "CryptoWall" nocase
+        $fam2 = "TeslaCrypt" nocase
+        $fam3 = "Cerber" nocase
+        $fam4 = "Ryuk" nocase
+        $fam5 = "CryptoLocker" nocase
+        $fam6 = "WannaCry" nocase
+        // Ransom-note indicators (only count when a crypto API is also present)
+        $note1 = "your files have been encrypted" nocase
+        $note2 = "your files are encrypted" nocase
+        $note3 = "to decrypt" nocase
+        $note4 = "decrypt your files" nocase
+        // Windows cryptographic APIs commonly used by crypto-ransomware
+        $api1 = "CryptEncrypt" nocase
+        $api2 = "CryptGenKey" nocase
+        $api3 = "CryptDeriveKey" nocase
+        $api4 = "CryptAcquireContext" nocase
+        $api5 = "CryptImportKey" nocase
     condition:
-        (2 of ($a*)) or (2 of ($b*)) or (1 of ($a*) and 1 of ($b*))
+        any of ($fam*) or (1 of ($note*) and 1 of ($api*))
 }
 
 rule suspicious_base64_in_json
@@ -76,8 +83,9 @@ rule suspicious_base64_in_json
         description = "Suspiciously long base64 blob in JSON/text file"
         severity    = "low"
     strings:
-        // 100+ char base64 string
-        $b64 = /[A-Za-z0-9+\/]{100,}={0,2}/
+        // 500+ char base64 blob. (A 100+ char threshold was far too noisy — it
+        // fired on legitimate binaries, embedded certificates and resources.)
+        $b64 = /[A-Za-z0-9+\/]{500,}={0,2}/
     condition:
         $b64
 }

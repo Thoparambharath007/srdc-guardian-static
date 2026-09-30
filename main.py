@@ -836,6 +836,14 @@ class ProcessVerdictPopup(tk.Toplevel):
         colour = RED if label=="Ransomware" else YLW if label=="Suspicious" else GRN
         icon   = "🛑" if label=="Ransomware" else "⚠️" if label=="Suspicious" else "✅"
 
+        # Auto-resume policy:
+        #   - Suspicious / Clean  -> released after 30s so a missed popup can
+        #     never freeze legitimate software indefinitely.
+        #   - Confirmed Ransomware (high confidence) -> held SUSPENDED until the
+        #     user explicitly chooses. A timer must never unblock a real threat.
+        self._auto_resume = not (label == "Ransomware"
+                                 and vdict["confidence"] == "High")
+
         stripe = tk.Frame(self, bg=colour, width=6)
         stripe.pack(side="left", fill="y")
 
@@ -846,7 +854,8 @@ class ProcessVerdictPopup(tk.Toplevel):
         banner = tk.Frame(main, bg="#1a0a0a" if label=="Ransomware" else "#1a1400", pady=6, padx=10)
         banner.pack(fill="x", pady=(0,10))
         tk.Label(banner,
-                 text="⏸  PROCESS SUSPENDED — Waiting for your decision",
+                 text=("⏸  PROCESS SUSPENDED — Waiting for your decision" if self._auto_resume
+                       else "⏸  CONFIRMED THREAT HELD FROZEN — You must decide (no auto-resume)"),
                  bg=banner.cget("bg"), fg=RED if label=="Ransomware" else YLW,
                  font=("Segoe UI", 9, "bold")).pack()
 
@@ -894,17 +903,20 @@ class ProcessVerdictPopup(tk.Toplevel):
                   padx=16, pady=8, cursor="hand2",
                   command=self._trust).pack(side="left", padx=(8,0))
 
-        # Auto-resume timer (30s)
-        self._countdown = 30
-        self._timer_lbl = tk.Label(main,
-                                    text=f"Auto-resume in {self._countdown}s",
-                                    bg=BG, fg=FAINT, font=FT_SMALL)
+        # Countdown / hold notice.  Confirmed threats get no timer at all.
+        self._timer_lbl = tk.Label(main, bg=BG, fg=FAINT, font=FT_SMALL)
         self._timer_lbl.pack(anchor="w", pady=(8,0))
-        self._tick()
+        if self._auto_resume:
+            self._countdown = 30
+            self._tick()
+        else:
+            self._countdown = None
+            self._timer_lbl.configure(
+                text="⏸  Held frozen until you decide — this threat will not be resumed automatically.")
         self._center()
 
     def _tick(self):
-        if not self.winfo_exists():
+        if not self.winfo_exists() or self._countdown is None:
             return
         if self._countdown <= 0:
             self._resume()

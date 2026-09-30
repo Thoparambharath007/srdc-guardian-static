@@ -59,18 +59,3 @@ os.makedirs(QUARANTINE_DIR, exist_ok=True)
 VT_API_KEY = os.environ.get("VT_API_KEY", "")
 
 ENTROPY_THRESHOLD    = 7.2
-SIZE_RATIO_THRESHOLD = 3.0
-
-SCANABLE_EXTENSIONS = {
-    ".exe", ".dll", ".scr", ".com", ".bat", ".cmd", ".msi", ".sys",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".js", ".vbs", ".ps1", ".hta", ".wsf",
-    ".zip", ".rar", ".7z", ".tar", ".gz", ".dmg", ".iso", ".img", ".pkg", ".bin",
-    ".jar", ".apk",
-}
-
-STATIC_ONLY_EXTENSIONS = {
-    ".json", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-    ".mp3", ".mp4", ".avi", ".mkv", ".wav",
-    ".txt", ".csv", ".xml", ".html",
-}

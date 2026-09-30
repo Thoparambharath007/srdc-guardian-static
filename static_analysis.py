@@ -10,14 +10,11 @@ Instant checks that run without executing the file:
 
 import os
 import math
-import ctypes
 import hashlib
-import struct
 import requests
 from collections import Counter
-from ctypes import wintypes
 
-from config import VT_API_KEY, ENTROPY_THRESHOLD, SIZE_RATIO_THRESHOLD
+from config import VT_API_KEY, ENTROPY_THRESHOLD
 
 # ─── MAGIC BYTES ─────────────────────────────────────────────────────────────
 

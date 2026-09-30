@@ -152,7 +152,6 @@ def compute_verdict(static: dict) -> dict:
         f"YARA        : {static['yara']['detail']}",
         f"File size   : {static['size']['detail']}",
     ]
-    sig = static.get("signature", {})
     if sig:
         detail_lines.append(f"Signature   : {sig.get('detail', 'unknown')}")
 

@@ -74,21 +74,33 @@ Ransomware** with an honest confidence level.
 ### False-positive policy (built after real-world tuning)
 
 A security tool that screams "malware" at every clean installer teaches users
-to ignore it. Three mechanisms keep the verdicts honest:
+to ignore it. Four mechanisms keep the verdicts honest:
 
-- **Specific YARA rules** — generic strings (`locky`, `to decrypt`) no longer
-  fire on their own: the crypto-ransomware rule requires either a known family
-  name *or* a ransom note **combined with** Windows crypto APIs, and the
-  base64-blob rule needs a 500+ character run (a 100+ char threshold fired on
-  legitimate binaries and embedded certificates).
-- **Corroboration rule** — a single weak hit (one generic YARA match, high
-  entropy) is reported as *information*, not a threat. A **Suspicious**
-  verdict requires either two independent weak signals or one strong local
-  indicator (lying extension, invalid signature, VirusTotal flag).
+- **Corroborated YARA rules** — no rule ships with a single loose string as
+  its trigger: `wannacry_indicator` and `locky_indicator` need **2 of** their
+  strings, `double_extension_exe` requires an MZ header *at offset 0* **and** a
+  double extension, and `crypto_ransom_generic` raises its bar by requiring a
+  known family name **or** a ransom-note phrase **combined with** a Windows
+  crypto API. The base64-blob rule needs a 500+ character run (a 100+ char
+  threshold fired on legitimate binaries, embedded certificates and resources).
+- **Corroboration rule** — a single weak hit (one YARA match, high entropy) is
+  reported as *information*, not a threat. A **Suspicious** verdict requires
+  either a strong local indicator (lying extension, invalid signature,
+  VirusTotal flag) or a score of 4+, i.e. multiple weaker signals agreeing.
+- **Type-aware entropy** — high entropy is normal for `.zip`, `.docx`, `.jpg`
+  and `.mp4`, so it is only treated as a signal for formats where packed or
+  encrypted bytes are unexpected (`.exe`, `.dll`, `.txt`, …).
 - **Trust evidence counts** — a valid Authenticode signature from a trusted
   publisher and a broad clean VirusTotal consensus actively lower the
   suspicion score and raise confidence, so a signed installer with YARA noise
   stays **Clean**.
+
+> **Known limitation (honest disclosure):** the bundled rules are *string*
+> matches, so a document that merely *discusses* ransomware — naming
+> `WannaCry`/`Ryuk`, or quoting a ransom note next to a WinCrypto API name —
+> can still match. That is why no YARA hit alone can produce a Suspicious
+> verdict. Replace or extend `yara_rules/` with community rules
+> (e.g. YARA-Marketplace) for production-grade detection.
 
 **No VirusTotal key?** Everything still works locally: the verdict engine says
 so explicitly ("VirusTotal reputation unavailable — relying on local static
@@ -116,12 +128,15 @@ child processes) are logged and allowed to run without interruption.
 ## 🚀 Quick Start (one command)
 
 > **Prerequisite:** [Python 3.10+](https://www.python.org/downloads/) with
-> *"Add python.exe to PATH"* ticked during installation.
+> *"Add python.exe to PATH"* ticked during installation, plus a **free
+> [VirusTotal API key](https://www.virustotal.com)** (sign up → click your
+> avatar → **API key** → copy the 64-character string). The key powers the
+> strongest signal — 70+ engine consensus — but the app still runs without it.
 
 After cloning the repo, run **`start.bat`** — double-click it, or:
 
 ```powershell
-git clone https://github.com/<you>/srdc-guardian-static.git
+git clone https://github.com/Thoparambharath007/srdc-guardian-static.git
 cd srdc-guardian-static
 .\start.bat
 ```
@@ -179,7 +194,9 @@ The suite locks in the false-positive policy: a single generic YARA hit on a
 file with no VirusTotal reputation must stay **Clean**, corroborated weak
 signals must be **Suspicious**, a lying extension is **Suspicious** on its
 own, a trusted signature overrides YARA noise, and broad multi-engine flags
-reach **Ransomware**.
+reach **Ransomware**. `tests/test_imports.py` additionally guards against a
+regression where importing `main` popped a UAC dialog, and
+`tests/test_storage.py` covers history and quarantine persistence.
 
 ---
 
@@ -213,11 +230,15 @@ reach **Ransomware**.
 ├── process_monitor.py       # WMI watcher + foreign-file policy (suspend/resume/kill)
 ├── history_store.py         # Scan history (JSON + CSV export)
 ├── quarantine_manager.py    # Quarantine management
+├── .env.example             # Config template (copied to .env on first run)
 ├── yara_rules/
 │   └── basic_rules.yar      # YARA detection rules (false-positive-tuned)
 ├── tests/
+│   ├── test_imports.py      # Import side-effect regression guard
 │   ├── test_verdict.py      # Verdict-policy unit tests
-│   └── test_static_analysis.py  # Static-check unit tests
+│   ├── test_static_analysis.py  # Static-check unit tests
+│   └── test_storage.py      # History + quarantine unit tests
+├── trusted_files.json       # Trust whitelist (created at runtime, gitignored)
 └── quarantine/              # Created at runtime (gitignored)
 ```
 

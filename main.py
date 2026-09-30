@@ -8,7 +8,8 @@ Advanced Windows desktop app with:
   - Toast notifications
   - Sound alerts (built-in winsound)
 
-Run: python main.py
+Run: start.bat   (creates the venv, installs deps, asks for your VT key once,
+then launches this file — see README before running `python main.py` directly)
 """
 import ctypes, sys
 
@@ -563,7 +564,6 @@ class ScanProgress(tk.Toplevel):
         tk.Label(pad, textvariable=self.status, bg=BG,
                  fg=DIM, font=FT_SMALL).pack(anchor="w")
         self._started_at = time.monotonic()
-        self._file_size = self._format_size(fname)
         self.elapsed = tk.StringVar(value="Elapsed: 0s")
         tk.Label(pad, textvariable=self.elapsed, bg=BG, fg=FAINT,
                  font=FT_SMALL).pack(anchor="w", pady=(3,0))
@@ -571,7 +571,7 @@ class ScanProgress(tk.Toplevel):
                  text="Live elapsed time — duration depends on the file being scanned.",
                  bg=BG, fg=FAINT, font=("Segoe UI", 8), wraplength=400,
                  justify="left").pack(anchor="w", pady=(1,0))
-        # Smooth animated bar — custom canvas at ~60 FPS. ttk's indeterminate
+        # Smooth animated bar — custom canvas at ~120 FPS. ttk's indeterminate
         # mode jumps in coarse discrete steps, which reads as stuttering.
         self._bar_w, self._bar_h, self._block_w = 420, 8, 72
         self._bar_canvas = tk.Canvas(pad, width=self._bar_w, height=self._bar_h,
@@ -596,11 +596,6 @@ class ScanProgress(tk.Toplevel):
                                 self._bar_pos, 0,
                                 self._bar_pos + self._block_w, self._bar_h)
         self.after(8, self._animate_bar)
-
-    def _format_size(self, _fname):
-        # The source path is not retained in this small window; the timer is
-        # deliberately based on observed elapsed work, not an invented ETA.
-        return ""
 
     def _tick_elapsed(self):
         if not self.winfo_exists():

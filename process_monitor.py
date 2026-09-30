@@ -69,6 +69,10 @@ _SKIP_NAMES = {
     "CCXProcess.exe","node.exe","npm.exe",
 }
 
+# Pre-lowercased for _skip(): process-creation events arrive in bursts, and
+# rebuilding the set on every event is wasted work.
+_SKIP_NAMES_LOWER = {n.lower() for n in _SKIP_NAMES}
+
 _seen: set[str] = set()   # deduplicate by path
 
 
@@ -83,6 +87,12 @@ _seen: set[str] = set()   # deduplicate by path
 
 _foreign_paths: set[str] = set()          # session registry (user-picked / newly arrived)
 _trusted: dict[str, list] = {"paths": [], "hashes": []}
+
+# Hashing a file is far too expensive to repeat for every process-creation
+# event, so results are memoised per path. Guards the trust store too, since
+# the WMI thread reads it while the Tk thread may be writing it.
+_trust_lock  = threading.Lock()
+_hash_cache: dict[str, str] = {}
 
 
 def _load_trusted():
@@ -126,18 +136,39 @@ def mark_foreign(path: str):
 def trust_file(path: str) -> bool:
     """Persistently trust a file: future launches will not be intercepted."""
     ap = os.path.abspath(path)
-    if ap not in _trusted["paths"]:
-        _trusted["paths"].append(ap)
     digest = _sha256_of(ap)
-    if digest and digest not in _trusted["hashes"]:
-        _trusted["hashes"].append(digest)
-    _save_trusted()
+    with _trust_lock:
+        if ap not in _trusted["paths"]:
+            _trusted["paths"].append(ap)
+        if digest and digest not in _trusted["hashes"]:
+            _trusted["hashes"].append(digest)
+        if digest:
+            _hash_cache[ap] = digest
+        _save_trusted()
     _foreign_paths.discard(ap)
     return True
 
 
-def is_trusted(path: str) -> bool:
-    return os.path.abspath(path) in _trusted["paths"]
+def is_trusted(path: str, by_hash: bool = True) -> bool:
+    """A file is trusted by its exact path, and optionally by its SHA-256.
+
+    The hash check is what makes "Trust — Don't Ask Again" survive a browser
+    saving the same installer as `tool.exe` and later `tool (1).exe`. Hashing
+    costs a full file read, so the WMI hot path passes ``by_hash=False`` and
+    only falls back to hashing for files that are otherwise candidates for
+    interception.
+    """
+    ap = os.path.abspath(path)
+    with _trust_lock:
+        if ap in _trusted["paths"]:
+            return True
+        if not by_hash or not _trusted["hashes"]:
+            return False
+        digest = _hash_cache.get(ap)
+        if digest is None:
+            digest = _sha256_of(ap) or ""
+            _hash_cache[ap] = digest
+        return bool(digest) and digest in _trusted["hashes"]
 
 
 def _has_internet_zone(path: str) -> bool:
@@ -173,12 +204,13 @@ def is_foreign(path: str) -> bool:
         ap = os.path.abspath(path)
     except Exception:
         return False
-    if is_trusted(ap):
+    # Cheap checks first: never hash a file we are about to allow anyway.
+    if is_trusted(ap, by_hash=False):
         return False
     if ap in _foreign_paths:
         return True
     if _has_internet_zone(ap):
-        return _is_fresh(ap)
+        return _is_fresh(ap) and not is_trusted(ap)
     return False
 
 
@@ -186,7 +218,7 @@ def _skip(path: str) -> bool:
     if not path:
         return True
     name = Path(path).name
-    if name.lower() in {n.lower() for n in _SKIP_NAMES}:
+    if name.lower() in _SKIP_NAMES_LOWER:
         return True
     for p in _SKIP_PATHS:
         if path.upper().startswith(p.upper()):

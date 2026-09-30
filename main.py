@@ -778,11 +778,23 @@ def run_scan(app, filepath):
             pass
 
     status("Running static analysis…")
-    static = static_analysis.run_all(filepath)
+    try:
+        static = static_analysis.run_all(filepath)
 
-    status("Computing verdict…")
-    vdict = verdict_mod.compute_verdict(static)
-    history_store.add_entry(filepath, vdict, static)
+        status("Computing verdict…")
+        vdict = verdict_mod.compute_verdict(static)
+        history_store.add_entry(filepath, vdict, static)
+    except Exception as exc:
+        # Without this guard an unexpected error leaves the "Scanning…"
+        # window animating forever and no result is ever shown.
+        def fail():
+            if prog[0]:
+                prog[0].destroy()
+            Toast(app, "Scan Error",
+                  f"Could not analyse {Path(filepath).name}: {exc}", RED)
+        ui(fail)
+        app.log(f"Scan error: {exc}")
+        return
 
     is_threat = vdict["is_malicious"]
     if is_threat:
@@ -955,11 +967,19 @@ def run_process_scan(app, filepath, pid):
         app.after(0, lambda: app.log(f"Could not suspend PID {pid} (may have exited)"))
         return
 
-    # Fast static scan (process is suspended while it runs)
-    static = static_analysis.run_all(filepath)
-
-    vdict = verdict_mod.compute_verdict(static)
-    history_store.add_entry(filepath, vdict, static)
+    # Fast static scan (process is suspended while it runs).  If anything in
+    # the scan raises we MUST resume the process, or a legitimate program is
+    # left frozen forever with no popup and no auto-resume timer.
+    try:
+        static = static_analysis.run_all(filepath)
+        vdict = verdict_mod.compute_verdict(static)
+        history_store.add_entry(filepath, vdict, static)
+    except Exception as exc:
+        pm.resume_process(pid)
+        app.after(0, lambda e=str(exc): app.log(f"Scan error for PID {pid}, resumed process: {e}"))
+        app.after(0, lambda: Toast(app, "Scan Error",
+                                   f"Could not analyse {Path(filepath).name}; process resumed."))
+        return
 
     is_threat = vdict["is_malicious"]
     if is_threat:

@@ -7,24 +7,41 @@ import os
 import json
 import shutil
 import time
+import threading
 from config import QUARANTINE_DIR
 
 INDEX_FILE = os.path.join(QUARANTINE_DIR, "_index.json")
+
+# The WMI/watcher threads and the Tk UI can quarantine, restore, or delete
+# concurrently. Serialise index access, and write atomically (temp + replace)
+# so a crash mid-write can never leave a half-written index that silently
+# orphans every previously quarantined file.
+_lock = threading.Lock()
 
 
 def _load_index() -> list:
     if not os.path.exists(INDEX_FILE):
         return []
     try:
-        with open(INDEX_FILE, "r") as f:
+        with open(INDEX_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return []
 
 
 def _save_index(data: list):
-    with open(INDEX_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    temp_file = INDEX_FILE + ".tmp"
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(temp_file, INDEX_FILE)
+    except Exception as e:
+        print(f"[Quarantine] Index save failed: {e}")
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
 
 
 def quarantine_file(filepath: str, verdict: str) -> dict | None:
@@ -48,7 +65,8 @@ def quarantine_file(filepath: str, verdict: str) -> dict | None:
         }
         idx = _load_index()
         idx.insert(0, entry)
-        _save_index(idx)
+        with _lock:
+            _save_index(idx)
         return entry
     except Exception as e:
         print(f"[Quarantine] Failed: {e}")
@@ -63,8 +81,9 @@ def restore_file(item_id: str) -> bool:
         return False
     try:
         shutil.move(entry["quarantine_path"], entry["original_path"])
-        idx = [e for e in idx if e["id"] != item_id]
-        _save_index(idx)
+        with _lock:
+            idx = [e for e in idx if e["id"] != item_id]
+            _save_index(idx)
         return True
     except Exception as e:
         print(f"[Quarantine] Restore failed: {e}")
@@ -80,8 +99,9 @@ def delete_permanently(item_id: str) -> bool:
     try:
         if os.path.exists(entry["quarantine_path"]):
             os.remove(entry["quarantine_path"])
-        idx = [e for e in idx if e["id"] != item_id]
-        _save_index(idx)
+        with _lock:
+            idx = [e for e in idx if e["id"] != item_id]
+            _save_index(idx)
         return True
     except Exception as e:
         print(f"[Quarantine] Delete failed: {e}")

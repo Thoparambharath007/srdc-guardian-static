@@ -119,9 +119,32 @@ foreign**:
 
 The process is **suspended** (`NtSuspendProcess`), scanned while frozen, and
 you choose: **Kill + Quarantine**, **Resume**, or **Trust — Don't Ask Again**
-(persistent whitelist in `trusted_files.json`). A 30-second auto-resume keeps
-the system usable. Local app dependencies (helpers, runtimes, installers'
+(persistent whitelist in `trusted_files.json`). A **30-second auto-resume**
+keeps the system usable for *Suspicious* and *Clean* verdicts, but a **confirmed
+Ransomware is held frozen until you explicitly decide** — the timer never
+releases a real threat. Local app dependencies (helpers, runtimes, installers'
 child processes) are logged and allowed to run without interruption.
+
+### Known limitation (the trust model)
+
+"Foreign" is inferred **primarily from the Mark-of-the-Web `Zone.Identifier`
+stream** — a label a file carries about itself, not a property bound to its
+contents. That label is not tamper-proof:
+
+- it can be **stripped** (`type malware.exe > copy.exe`,
+  `Remove-Item file.exe:Zone.Identifier`, re-saving through an editor, or
+  copying out-and-back over a FAT/exFAT USB drive, which cannot hold ADS), or
+- it can **age out** — a file older than the 24-hour freshness window no longer
+  counts as a fresh download, and
+- some delivery paths never stamp zone 3/4 at all (running from inside an
+  archive, or a **network share**, which Windows tags as zone 2 / intranet).
+
+So a file executed from a folder you are **not** watching, with the mark removed
+or aged past the window, will run **un-intercepted**. Anything that *lands in a
+watched folder* is still caught by the file watcher regardless of the mark.
+Closing the remaining gap entirely needs a heavier reputation/behaviour model
+rather than provenance inference — deliberately out of scope for a lightweight
+static-analysis prototype. This is a **detection-coverage limit, not a code bug**.
 
 ---
 

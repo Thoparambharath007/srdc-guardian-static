@@ -182,9 +182,9 @@ def compute_entropy(file_path: str) -> dict:
         return {"entropy": 0.0, "flag": False, "detail": "empty file"}
 
     entropy = 0.0
-    for c in counts:
-        if c:
-            p = c / size
+    for count in counts.values():
+        if count:
+            p = count / size
             entropy -= p * math.log2(p)
 
     high = entropy >= ENTROPY_THRESHOLD

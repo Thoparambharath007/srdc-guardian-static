@@ -52,8 +52,11 @@ if not exist ".env" (
     copy ".env.example" ".env" >nul
 )
 
-rem --- 5. First-run VirusTotal API key setup (skipped once a key is saved) ---
-findstr /B /R /C:"VT_API_KEY=." ".env" >nul 2>nul && goto vt_done
+rem --- 5. First-run VirusTotal API key setup (skipped once a VALID key is saved) ---
+rem     A value shorter than 32 chars (e.g. a stray keystroke like "Y") is treated
+rem     as "not set", so the wizard re-prompts instead of locking in a broken key.
+python -c "import sys;from dotenv import dotenv_values;v=(dotenv_values('.env').get('VT_API_KEY') or '').strip();sys.exit(0 if len(v)>=32 else 1)"
+if not errorlevel 1 goto vt_done
 echo.
 echo  ============================================================
 echo    VIRUS TOTAL API KEY   ^(REQUIRED^)
@@ -71,10 +74,12 @@ start "" https://www.virustotal.com
 :vt_ask
 set "VTKEY="
 set /p "VTKEY=   Paste your API key here: "
-if "%VTKEY%"=="" (
-    echo    [!] The API key is required for full protection - it cannot be empty.
-    goto vt_ask
-)
+python -c "import sys;v=(sys.argv[1] if len(sys.argv)>1 else '').strip();sys.exit(0 if len(v)>=32 else 1)" "%VTKEY%"
+if not errorlevel 1 goto vt_save
+echo    [!] That doesn't look like a valid key - it must be at least 32 characters.
+echo        Get your free 64-char key at https://www.virustotal.com and paste it again.
+goto vt_ask
+:vt_save
 python -c "from dotenv import set_key; set_key('.env', 'VT_API_KEY', '%VTKEY%'.strip(), quote_mode='auto')"
 echo    [*] API key saved to .env - you can change it later in Settings.
 :vt_done

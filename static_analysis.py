@@ -97,7 +97,11 @@ def compute_hashes(file_path: str) -> dict:
                 sha1.update(chunk)
                 sha256.update(chunk)
     except Exception:
-        pass
+        # Returning the digest of *empty input* here would be indistinguishable
+        # from a genuinely empty file and gets shipped to VirusTotal, which has
+        # a real record for the empty hash — silently producing a false "clean"
+        # signal. Empty strings let the caller know hashing failed.
+        return {"md5": "", "sha1": "", "sha256": ""}
     return {
         "md5":    md5.hexdigest(),
         "sha1":   sha1.hexdigest(),
@@ -114,6 +118,9 @@ def virustotal_lookup(sha256: str) -> dict:
     if not VT_API_KEY or VT_API_KEY == "PASTE_YOUR_VT_API_KEY_HERE":
         return {"vt_flag": False, "positives": 0, "total": 0,
                 "detail": "VT API key not configured"}
+    if not sha256:
+        return {"vt_flag": False, "positives": 0, "total": 0,
+                "detail": "File could not be read for hashing (VirusTotal lookup skipped)"}
     url     = f"https://www.virustotal.com/api/v3/files/{sha256}"
     headers = {"x-apikey": VT_API_KEY}
     try:

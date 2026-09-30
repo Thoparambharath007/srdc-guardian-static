@@ -48,64 +48,71 @@ def quarantine_file(filepath: str, verdict: str) -> dict | None:
     """Move file to quarantine folder. Returns index entry or None on fail."""
     if not os.path.exists(filepath):
         return None
-    fname    = os.path.basename(filepath)
-    ts       = time.strftime("%Y%m%d_%H%M%S")
-    safe_name = f"{ts}_{fname}.quarantine"
-    dest     = os.path.join(QUARANTINE_DIR, safe_name)
-    try:
-        shutil.move(filepath, dest)
-        entry = {
-            "id":           safe_name,
-            "original_name": fname,
-            "original_path": filepath,
-            "quarantine_path": dest,
-            "verdict":      verdict,
-            "timestamp":    time.strftime("%Y-%m-%d %H:%M:%S"),
-            "size_kb":      round(os.path.getsize(dest) / 1024, 1),
-        }
-        idx = _load_index()
-        idx.insert(0, entry)
-        with _lock:
+    fname = os.path.basename(filepath)
+    ts    = time.strftime("%Y%m%d_%H%M%S")
+    # Hold the lock across the whole read-modify-write so a concurrent
+    # quarantine/restore can never drop an entry, and guarantee a unique
+    # destination: two same-named files quarantined in the same second would
+    # otherwise collide on one path (silent overwrite) and one index id.
+    with _lock:
+        safe_name = f"{ts}_{fname}.quarantine"
+        dest = os.path.join(QUARANTINE_DIR, safe_name)
+        n = 1
+        while os.path.exists(dest):
+            safe_name = f"{ts}_{fname}.{n}.quarantine"
+            dest = os.path.join(QUARANTINE_DIR, safe_name)
+            n += 1
+        try:
+            shutil.move(filepath, dest)
+            entry = {
+                "id":           safe_name,
+                "original_name": fname,
+                "original_path": filepath,
+                "quarantine_path": dest,
+                "verdict":      verdict,
+                "timestamp":    time.strftime("%Y-%m-%d %H:%M:%S"),
+                "size_kb":      round(os.path.getsize(dest) / 1024, 1),
+            }
+            idx = _load_index()
+            idx.insert(0, entry)
             _save_index(idx)
-        return entry
-    except Exception as e:
-        print(f"[Quarantine] Failed: {e}")
-        return None
+            return entry
+        except Exception as e:
+            print(f"[Quarantine] Failed: {e}")
+            return None
 
 
 def restore_file(item_id: str) -> bool:
     """Restore quarantined file to original location."""
-    idx = _load_index()
-    entry = next((e for e in idx if e["id"] == item_id), None)
-    if not entry:
-        return False
-    try:
-        shutil.move(entry["quarantine_path"], entry["original_path"])
-        with _lock:
-            idx = [e for e in idx if e["id"] != item_id]
-            _save_index(idx)
-        return True
-    except Exception as e:
-        print(f"[Quarantine] Restore failed: {e}")
-        return False
+    with _lock:
+        idx = _load_index()
+        entry = next((e for e in idx if e["id"] == item_id), None)
+        if not entry:
+            return False
+        try:
+            shutil.move(entry["quarantine_path"], entry["original_path"])
+            _save_index([e for e in idx if e["id"] != item_id])
+            return True
+        except Exception as e:
+            print(f"[Quarantine] Restore failed: {e}")
+            return False
 
 
 def delete_permanently(item_id: str) -> bool:
     """Permanently delete quarantined file."""
-    idx = _load_index()
-    entry = next((e for e in idx if e["id"] == item_id), None)
-    if not entry:
-        return False
-    try:
-        if os.path.exists(entry["quarantine_path"]):
-            os.remove(entry["quarantine_path"])
-        with _lock:
-            idx = [e for e in idx if e["id"] != item_id]
-            _save_index(idx)
-        return True
-    except Exception as e:
-        print(f"[Quarantine] Delete failed: {e}")
-        return False
+    with _lock:
+        idx = _load_index()
+        entry = next((e for e in idx if e["id"] == item_id), None)
+        if not entry:
+            return False
+        try:
+            if os.path.exists(entry["quarantine_path"]):
+                os.remove(entry["quarantine_path"])
+            _save_index([e for e in idx if e["id"] != item_id])
+            return True
+        except Exception as e:
+            print(f"[Quarantine] Delete failed: {e}")
+            return False
 
 
 def get_all() -> list:

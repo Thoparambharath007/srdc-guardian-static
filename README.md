@@ -1,3 +1,20 @@
+<img width="1047" height="511" alt="image" src="https://github.com/user-attachments/assets/bfe45b37-9208-4c92-9150-22231673341f" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 🛡️ SRDC Guardian — Static Edition
 
 **A transparent, explainable endpoint-security guardian for Windows that watches
